@@ -8,6 +8,12 @@ const categoriaSchema = new mongoose.Schema({
     uppercase: true,
     maxlength: [50, 'Il nome della categoria non può superare i 50 caratteri']
   },
+  tipo: {
+    type: String,
+    required: [true, 'Il tipo della categoria è obbligatorio'],
+    enum: ['ENTRATE', 'USCITE'],
+    uppercase: true
+  },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -39,29 +45,42 @@ const categoriaSchema = new mongoose.Schema({
 });
 
 // Indici per performance
-categoriaSchema.index({ userId: 1, nome: 1 }, { unique: true });
-categoriaSchema.index({ isDefault: 1 });
+categoriaSchema.index({ userId: 1, nome: 1, tipo: 1 }, { unique: true });
+categoriaSchema.index({ isDefault: 1, tipo: 1 });
 categoriaSchema.index({ isActive: 1 });
+categoriaSchema.index({ tipo: 1 });
 
 // Indice composto per evitare duplicati di categorie default
-categoriaSchema.index({ nome: 1, isDefault: 1 }, { 
+categoriaSchema.index({ nome: 1, tipo: 1, isDefault: 1 }, { 
   unique: true,
   partialFilterExpression: { isDefault: true }
 });
 
-// Metodo statico per ottenere categorie default
-categoriaSchema.statics.getCategorieDefault = function() {
-  return this.find({ isDefault: true, isActive: true }).sort({ nome: 1 });
+// Metodo statico per ottenere categorie default per tipo
+categoriaSchema.statics.getCategorieDefault = function(tipo = null) {
+  const query = { isDefault: true, isActive: true };
+  if (tipo) {
+    query.tipo = tipo.toUpperCase();
+  }
+  return this.find(query).sort({ tipo: 1, nome: 1 });
 };
 
-// Metodo statico per ottenere categorie di un utente (default + personalizzate)
-categoriaSchema.statics.getCategorieUtente = function(userId) {
-  return this.find({
+// Metodo statico per ottenere categorie di un utente per tipo (default + personalizzate)
+categoriaSchema.statics.getCategorieUtente = function(userId, tipo = null) {
+  const query = {
     $or: [
       { isDefault: true, isActive: true },
       { userId: userId, isActive: true }
     ]
-  }).sort({ isDefault: -1, nome: 1 });
+  };
+  
+  if (tipo) {
+    // Applica il filtro tipo a entrambe le condizioni dell'OR
+    query.$or[0].tipo = tipo.toUpperCase();
+    query.$or[1].tipo = tipo.toUpperCase();
+  }
+  
+  return this.find(query).sort({ isDefault: -1, tipo: 1, nome: 1 });
 };
 
 // Metodo per verificare se la categoria può essere eliminata

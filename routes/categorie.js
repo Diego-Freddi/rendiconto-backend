@@ -25,11 +25,13 @@ const handleValidationErrors = (req, res, next) => {
 // @access  Private
 router.get('/', async (req, res) => {
   try {
-    const categorie = await Categoria.getCategorieUtente(req.userId);
+    const { tipo } = req.query;
+    const categorie = await Categoria.getCategorieUtente(req.userId, tipo);
 
     res.json({
       categorie,
-      totale: categorie.length
+      totale: categorie.length,
+      tipo: tipo || 'TUTTE'
     });
 
   } catch (error) {
@@ -46,11 +48,13 @@ router.get('/', async (req, res) => {
 // @access  Private
 router.get('/default', async (req, res) => {
   try {
-    const categorie = await Categoria.getCategorieDefault();
+    const { tipo } = req.query;
+    const categorie = await Categoria.getCategorieDefault(tipo);
 
     res.json({
       categorie,
-      totale: categorie.length
+      totale: categorie.length,
+      tipo: tipo || 'TUTTE'
     });
 
   } catch (error) {
@@ -67,14 +71,22 @@ router.get('/default', async (req, res) => {
 // @access  Private
 router.get('/personalizzate', async (req, res) => {
   try {
-    const categorie = await Categoria.find({
+    const { tipo } = req.query;
+    const query = {
       userId: req.userId,
       isActive: true
-    }).sort({ nome: 1 });
+    };
+    
+    if (tipo) {
+      query.tipo = tipo.toUpperCase();
+    }
+
+    const categorie = await Categoria.find(query).sort({ tipo: 1, nome: 1 });
 
     res.json({
       categorie,
-      totale: categorie.length
+      totale: categorie.length,
+      tipo: tipo || 'TUTTE'
     });
 
   } catch (error) {
@@ -93,21 +105,10 @@ router.post('/', [
   body('nome')
     .trim()
     .isLength({ min: 1, max: 50 })
-    .withMessage('Il nome della categoria è obbligatorio (max 50 caratteri)')
-    .custom(value => {
-      // Converti in maiuscolo per il controllo
-      const upperValue = value.toUpperCase();
-      // Lista delle categorie default che non possono essere duplicate
-      const categorieDefault = [
-        'SALUTE', 'CULTURA', 'RISTORANTI', 'VACANZE', 
-        'BANCA', 'UFFICIO', 'PERSONA', 'ABBIGLIAMENTO', 'AUTO'
-      ];
-      
-      if (categorieDefault.includes(upperValue)) {
-        throw new Error('Non puoi creare una categoria con lo stesso nome di una categoria default');
-      }
-      return true;
-    }),
+    .withMessage('Il nome della categoria è obbligatorio (max 50 caratteri)'),
+  body('tipo')
+    .isIn(['ENTRATE', 'USCITE'])
+    .withMessage('Il tipo deve essere ENTRATE o USCITE'),
   body('descrizione')
     .optional()
     .trim()
@@ -119,25 +120,41 @@ router.post('/', [
     .withMessage('Il colore deve essere un codice esadecimale valido (es: #FF0000)')
 ], handleValidationErrors, async (req, res) => {
   try {
-    const { nome, descrizione, colore } = req.body;
+    const { nome, tipo, descrizione, colore } = req.body;
 
-    // Verifica se l'utente ha già una categoria con questo nome
+    // Verifica se l'utente ha già una categoria con questo nome e tipo
     const existingCategoria = await Categoria.findOne({
       userId: req.userId,
       nome: nome.toUpperCase(),
+      tipo: tipo.toUpperCase(),
       isActive: true
     });
 
     if (existingCategoria) {
       return res.status(400).json({
         error: 'Categoria già esistente',
-        message: 'Hai già una categoria personalizzata con questo nome'
+        message: `Hai già una categoria personalizzata "${nome}" per ${tipo.toLowerCase()}`
+      });
+    }
+
+    // Verifica se esiste già una categoria default con stesso nome e tipo
+    const existingDefault = await Categoria.findOne({
+      nome: nome.toUpperCase(),
+      tipo: tipo.toUpperCase(),
+      isDefault: true
+    });
+
+    if (existingDefault) {
+      return res.status(400).json({
+        error: 'Categoria già esistente',
+        message: `Esiste già una categoria predefinita "${nome}" per ${tipo.toLowerCase()}`
       });
     }
 
     // Crea nuova categoria
     const categoria = new Categoria({
       nome: nome.toUpperCase(),
+      tipo: tipo.toUpperCase(),
       userId: req.userId,
       descrizione,
       colore: colore || '#6c757d',
