@@ -22,39 +22,25 @@ const handleValidationErrors = (req, res, next) => {
 
 // Validazioni comuni
 const rendicontoValidation = [
-  body('datiGenerali.anno')
-    .isInt({ min: 2000, max: new Date().getFullYear() + 1 })
-    .withMessage('Anno non valido'),
-  body('datiGenerali.mese')
-    .isIn(['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 
-           'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'])
-    .withMessage('Mese non valido'),
+  body('beneficiarioId')
+    .isMongoId()
+    .withMessage('ID beneficiario non valido'),
+  body('datiGenerali.dataInizio')
+    .isISO8601()
+    .withMessage('Data di inizio non valida'),
+  body('datiGenerali.dataFine')
+    .isISO8601()
+    .withMessage('Data di fine non valida')
+    .custom((value, { req }) => {
+      if (new Date(value) <= new Date(req.body.datiGenerali.dataInizio)) {
+        throw new Error('La data di fine deve essere successiva alla data di inizio');
+      }
+      return true;
+    }),
   body('datiGenerali.rg_numero')
     .trim()
     .isLength({ min: 1, max: 50 })
-    .withMessage('Numero R.G. obbligatorio (max 50 caratteri)'),
-  body('datiGenerali.beneficiario.nome')
-    .trim()
-    .isLength({ min: 1, max: 50 })
-    .withMessage('Nome beneficiario obbligatorio (max 50 caratteri)'),
-  body('datiGenerali.beneficiario.cognome')
-    .trim()
-    .isLength({ min: 1, max: 50 })
-    .withMessage('Cognome beneficiario obbligatorio (max 50 caratteri)'),
-  body('datiGenerali.beneficiario.codiceFiscale')
-    .matches(/^[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]$/)
-    .withMessage('Codice fiscale beneficiario non valido'),
-  body('datiGenerali.amministratore.nome')
-    .trim()
-    .isLength({ min: 1, max: 50 })
-    .withMessage('Nome amministratore obbligatorio (max 50 caratteri)'),
-  body('datiGenerali.amministratore.cognome')
-    .trim()
-    .isLength({ min: 1, max: 50 })
-    .withMessage('Cognome amministratore obbligatorio (max 50 caratteri)'),
-  body('datiGenerali.amministratore.codiceFiscale')
-    .matches(/^[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]$/)
-    .withMessage('Codice fiscale amministratore non valido')
+    .withMessage('Numero R.G. obbligatorio (max 50 caratteri)')
 ];
 
 // @route   GET /api/rendiconti
@@ -82,27 +68,30 @@ router.get('/', [
       filters['datiGenerali.anno'] = parseInt(req.query.anno);
     }
 
-    if (req.query.search) {
-      const searchRegex = new RegExp(req.query.search, 'i');
-      filters.$or = [
-        { 'datiGenerali.beneficiario.nome': searchRegex },
-        { 'datiGenerali.beneficiario.cognome': searchRegex },
-        { 'datiGenerali.rg_numero': searchRegex }
-      ];
-    }
-
-    // Ottieni rendiconti con paginazione
+    // Ottieni rendiconti con paginazione e populate beneficiario
     const rendiconti = await Rendiconto.find(filters)
+      .populate('beneficiarioId', 'nome cognome codiceFiscale situazionePatrimoniale')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .select('datiGenerali stato situazionePatrimoniale contoEconomico createdAt updatedAt');
+      .select('datiGenerali stato contoEconomico beneficiarioId createdAt updatedAt');
+
+    // Se c'è una ricerca, filtra dopo il populate
+    let filteredRendiconti = rendiconti;
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      filteredRendiconti = rendiconti.filter(r => 
+        searchRegex.test(r.beneficiarioId?.nome) ||
+        searchRegex.test(r.beneficiarioId?.cognome) ||
+        searchRegex.test(r.datiGenerali?.rg_numero)
+      );
+    }
 
     // Conta totale per paginazione
     const total = await Rendiconto.countDocuments(filters);
 
     res.json({
-      rendiconti,
+      rendiconti: filteredRendiconti,
       pagination: {
         currentPage: page,
         totalPages: Math.ceil(total / limit),
@@ -130,7 +119,7 @@ router.get('/:id', [
     const rendiconto = await Rendiconto.findOne({
       _id: req.params.id,
       userId: req.userId
-    });
+    }).populate('beneficiarioId');
 
     if (!rendiconto) {
       return res.status(404).json({
@@ -155,41 +144,64 @@ router.get('/:id', [
 // @access  Private
 router.post('/', rendicontoValidation, handleValidationErrors, async (req, res) => {
   try {
-    // Verifica se esiste già un rendiconto per lo stesso anno/mese/beneficiario
+    const Beneficiario = require('../models/Beneficiario');
+    
+    // Verifica che il beneficiario esista e appartenga all'utente
+    const beneficiario = await Beneficiario.findOne({
+      _id: req.body.beneficiarioId,
+      userId: req.userId,
+      isActive: true
+    });
+
+    if (!beneficiario) {
+      return res.status(404).json({
+        error: 'Beneficiario non trovato',
+        message: 'Il beneficiario selezionato non esiste o non è attivo'
+      });
+    }
+
+    // Calcola anno dalla data di inizio
+    const dataInizio = new Date(req.body.datiGenerali.dataInizio);
+    const anno = dataInizio.getFullYear();
+
+    // Verifica se esiste già un rendiconto per lo stesso periodo/beneficiario
     const existingRendiconto = await Rendiconto.findOne({
       userId: req.userId,
-      'datiGenerali.anno': req.body.datiGenerali.anno,
-      'datiGenerali.mese': req.body.datiGenerali.mese,
-      'datiGenerali.beneficiario.codiceFiscale': req.body.datiGenerali.beneficiario.codiceFiscale.toUpperCase()
+      beneficiarioId: req.body.beneficiarioId,
+      $or: [
+        {
+          'datiGenerali.dataInizio': { $lte: new Date(req.body.datiGenerali.dataFine) },
+          'datiGenerali.dataFine': { $gte: new Date(req.body.datiGenerali.dataInizio) }
+        }
+      ]
     });
 
     if (existingRendiconto) {
       return res.status(400).json({
         error: 'Rendiconto già esistente',
-        message: `Esiste già un rendiconto per ${req.body.datiGenerali.mese} ${req.body.datiGenerali.anno} per questo beneficiario`
+        message: `Esiste già un rendiconto per questo beneficiario nel periodo specificato`
       });
     }
 
-    // Prepara i dati con codici fiscali normalizzati
+    // Prepara i dati del rendiconto
     const rendicontoData = {
-      ...req.body,
-      userId: req.userId
+      userId: req.userId,
+      beneficiarioId: req.body.beneficiarioId,
+      datiGenerali: {
+        ...req.body.datiGenerali,
+        anno: anno // Calcolato automaticamente
+      },
+      contoEconomico: req.body.contoEconomico || { entrate: [], uscite: [] },
+      firma: req.body.firma || {},
+      stato: 'bozza'
     };
-
-    // Normalizza codici fiscali
-    if (rendicontoData.datiGenerali?.beneficiario?.codiceFiscale) {
-      rendicontoData.datiGenerali.beneficiario.codiceFiscale = 
-        rendicontoData.datiGenerali.beneficiario.codiceFiscale.toUpperCase();
-    }
-    if (rendicontoData.datiGenerali?.amministratore?.codiceFiscale) {
-      rendicontoData.datiGenerali.amministratore.codiceFiscale = 
-        rendicontoData.datiGenerali.amministratore.codiceFiscale.toUpperCase();
-    }
 
     // Crea nuovo rendiconto
     const rendiconto = new Rendiconto(rendicontoData);
-
     await rendiconto.save();
+
+    // Popola il beneficiario per la risposta
+    await rendiconto.populate('beneficiarioId');
 
     res.status(201).json({
       message: 'Rendiconto creato con successo',
@@ -233,22 +245,23 @@ router.put('/:id', [
       });
     }
 
-    // Aggiorna i campi
+    // Aggiorna i campi (esclusi userId e beneficiarioId che non devono cambiare)
     Object.keys(req.body).forEach(key => {
-      if (key !== 'userId') { // Non permettere modifica dell'userId
+      if (key !== 'userId' && key !== 'beneficiarioId') {
         rendiconto[key] = req.body[key];
       }
     });
 
-    // Normalizza codici fiscali
-    if (req.body.datiGenerali?.beneficiario?.codiceFiscale) {
-      rendiconto.datiGenerali.beneficiario.codiceFiscale = req.body.datiGenerali.beneficiario.codiceFiscale.toUpperCase();
-    }
-    if (req.body.datiGenerali?.amministratore?.codiceFiscale) {
-      rendiconto.datiGenerali.amministratore.codiceFiscale = req.body.datiGenerali.amministratore.codiceFiscale.toUpperCase();
+    // Ricalcola anno se cambia la data di inizio
+    if (req.body.datiGenerali?.dataInizio) {
+      const dataInizio = new Date(req.body.datiGenerali.dataInizio);
+      rendiconto.datiGenerali.anno = dataInizio.getFullYear();
     }
 
     await rendiconto.save();
+    
+    // Popola il beneficiario per la risposta
+    await rendiconto.populate('beneficiarioId');
 
     res.json({
       message: 'Rendiconto aggiornato con successo',
@@ -342,12 +355,10 @@ router.get('/:id/completezza', [
     };
 
     // Verifica dati generali
-    if (!rendiconto.datiGenerali?.anno) completezza.errori.push('Anno mancante');
-    if (!rendiconto.datiGenerali?.mese) completezza.errori.push('Mese mancante');
+    if (!rendiconto.datiGenerali?.dataInizio) completezza.errori.push('Data inizio mancante');
+    if (!rendiconto.datiGenerali?.dataFine) completezza.errori.push('Data fine mancante');
     if (!rendiconto.datiGenerali?.rg_numero) completezza.errori.push('R.G. mancante');
-    if (!rendiconto.datiGenerali?.beneficiario?.nome) completezza.errori.push('Nome beneficiario mancante');
-    if (!rendiconto.datiGenerali?.beneficiario?.cognome) completezza.errori.push('Cognome beneficiario mancante');
-    if (!rendiconto.datiGenerali?.beneficiario?.codiceFiscale) completezza.errori.push('Codice fiscale beneficiario mancante');
+    if (!rendiconto.beneficiarioId) completezza.errori.push('Beneficiario non selezionato');
 
     // Verifica condizioni personali
     if (!rendiconto.condizioniPersonali || rendiconto.condizioniPersonali.trim().length === 0) {

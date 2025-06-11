@@ -63,108 +63,38 @@ const rendicontoSchema = new mongoose.Schema({
     required: [true, 'L\'utente è obbligatorio']
   },
   
+  // Riferimento al beneficiario
+  beneficiarioId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Beneficiario',
+    required: [true, 'Il beneficiario è obbligatorio']
+  },
+  
   // Dati generali
   datiGenerali: {
+    dataInizio: {
+      type: Date,
+      required: [true, 'La data di inizio è obbligatoria']
+    },
+    dataFine: {
+      type: Date,
+      required: [true, 'La data di fine è obbligatoria']
+    },
     anno: {
       type: Number,
-      required: [true, 'L\'anno è obbligatorio'],
+      // Calcolato automaticamente dalla dataInizio
       min: [2000, 'Anno non valido'],
       max: [new Date().getFullYear() + 1, 'Anno non può essere futuro']
-    },
-    mese: {
-      type: String,
-      required: [true, 'Il mese è obbligatorio'],
-      enum: ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 
-             'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
     },
     rg_numero: {
       type: String,
       required: [true, 'Il numero R.G. è obbligatorio'],
       trim: true,
       maxlength: [50, 'Il numero R.G. non può superare i 50 caratteri']
-    },
-    
-    // Dati beneficiario/interdetto
-    beneficiario: {
-      nome: {
-        type: String,
-        required: [true, 'Il nome del beneficiario è obbligatorio'],
-        trim: true,
-        maxlength: [50, 'Il nome non può superare i 50 caratteri']
-      },
-      cognome: {
-        type: String,
-        required: [true, 'Il cognome del beneficiario è obbligatorio'],
-        trim: true,
-        maxlength: [50, 'Il cognome non può superare i 50 caratteri']
-      },
-      codiceFiscale: {
-        type: String,
-        required: [true, 'Il codice fiscale del beneficiario è obbligatorio'],
-        uppercase: true,
-        trim: true,
-        match: [/^[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]$/, 'Inserisci un codice fiscale valido']
-      },
-      dataNascita: {
-        type: Date,
-        required: [true, 'La data di nascita è obbligatoria']
-      },
-      luogoNascita: {
-        type: String,
-        trim: true,
-        maxlength: [100, 'Il luogo di nascita non può superare i 100 caratteri']
-      },
-      indirizzo: {
-        via: String,
-        citta: String,
-        cap: String,
-        provincia: String
-      }
-    },
-    
-    // Dati amministratore di sostegno/tutore
-    amministratore: {
-      nome: {
-        type: String,
-        required: [true, 'Il nome dell\'amministratore è obbligatorio'],
-        trim: true,
-        maxlength: [50, 'Il nome non può superare i 50 caratteri']
-      },
-      cognome: {
-        type: String,
-        required: [true, 'Il cognome dell\'amministratore è obbligatorio'],
-        trim: true,
-        maxlength: [50, 'Il cognome non può superare i 50 caratteri']
-      },
-      codiceFiscale: {
-        type: String,
-        required: [true, 'Il codice fiscale dell\'amministratore è obbligatorio'],
-        uppercase: true,
-        trim: true,
-        match: [/^[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]$/, 'Inserisci un codice fiscale valido']
-      },
-      indirizzo: {
-        via: String,
-        citta: String,
-        cap: String,
-        provincia: String
-      }
     }
   },
   
-  // Condizioni personali del beneficiario
-  condizioniPersonali: {
-    type: String,
-    trim: true,
-    maxlength: [5000, 'Le condizioni personali non possono superare i 5000 caratteri']
-  },
-  
-  // Situazione patrimoniale
-  situazionePatrimoniale: {
-    beniImmobili: [beneSchema],
-    beniMobili: [beneSchema],
-    titoliConti: [beneSchema]
-  },
+  // NOTA: condizioniPersonali e situazionePatrimoniale sono ora nel modello Beneficiario
   
   // Conto economico
   contoEconomico: {
@@ -223,32 +153,21 @@ const rendicontoSchema = new mongoose.Schema({
 });
 
 // Indici per performance
-rendicontoSchema.index({ userId: 1, 'datiGenerali.anno': -1, 'datiGenerali.mese': 1 });
-rendicontoSchema.index({ 'datiGenerali.beneficiario.codiceFiscale': 1 });
+rendicontoSchema.index({ userId: 1, beneficiarioId: 1, 'datiGenerali.anno': -1 });
+rendicontoSchema.index({ beneficiarioId: 1, 'datiGenerali.dataInizio': -1 });
 rendicontoSchema.index({ stato: 1 });
 rendicontoSchema.index({ createdAt: -1 });
 
-// Virtual per nome completo beneficiario
-rendicontoSchema.virtual('datiGenerali.beneficiario.nomeCompleto').get(function() {
-  if (!this.datiGenerali?.beneficiario?.nome || !this.datiGenerali?.beneficiario?.cognome) return '';
-  return `${this.datiGenerali.beneficiario.nome} ${this.datiGenerali.beneficiario.cognome}`;
-});
-
-// Virtual per nome completo amministratore
-rendicontoSchema.virtual('datiGenerali.amministratore.nomeCompleto').get(function() {
-  if (!this.datiGenerali?.amministratore?.nome || !this.datiGenerali?.amministratore?.cognome) return '';
-  return `${this.datiGenerali.amministratore.nome} ${this.datiGenerali.amministratore.cognome}`;
-});
-
-// Virtual per calcolo totale patrimonio
-rendicontoSchema.virtual('totalePatrimonio').get(function() {
-  if (!this.situazionePatrimoniale) return 0;
+// Virtual per periodo formattato
+rendicontoSchema.virtual('periodoFormattato').get(function() {
+  if (!this.datiGenerali?.dataInizio || !this.datiGenerali?.dataFine) return '';
   
-  const totaleImmobili = (this.situazionePatrimoniale.beniImmobili || []).reduce((sum, bene) => sum + (bene.valore || 0), 0);
-  const totaleMobili = (this.situazionePatrimoniale.beniMobili || []).reduce((sum, bene) => sum + (bene.valore || 0), 0);
-  const totaleTitoli = (this.situazionePatrimoniale.titoliConti || []).reduce((sum, bene) => sum + (bene.valore || 0), 0);
-  return totaleImmobili + totaleMobili + totaleTitoli;
+  const inizio = this.datiGenerali.dataInizio.toLocaleDateString('it-IT');
+  const fine = this.datiGenerali.dataFine.toLocaleDateString('it-IT');
+  return `${inizio} - ${fine}`;
 });
+
+// NOTA: totalePatrimonio ora è calcolato dal modello Beneficiario tramite populate
 
 // Virtual per calcolo totale entrate
 rendicontoSchema.virtual('totaleEntrate').get(function() {
@@ -267,25 +186,36 @@ rendicontoSchema.virtual('differenzaEntrateUscite').get(function() {
   return this.totaleEntrate - this.totaleUscite;
 });
 
+// Middleware per calcolare automaticamente l'anno dalla data di inizio
+rendicontoSchema.pre('save', function(next) {
+  if (this.datiGenerali?.dataInizio) {
+    this.datiGenerali.anno = this.datiGenerali.dataInizio.getFullYear();
+  }
+  next();
+});
+
 // Metodo per verificare completezza del rendiconto
 rendicontoSchema.methods.isCompleto = function() {
   const errori = [];
   
   // Verifica dati obbligatori
-  if (!this.datiGenerali?.anno || !this.datiGenerali?.mese || !this.datiGenerali?.rg_numero) {
+  if (!this.datiGenerali?.dataInizio || !this.datiGenerali?.dataFine || !this.datiGenerali?.rg_numero) {
     errori.push('Dati generali incompleti');
   }
   
-  if (!this.datiGenerali?.beneficiario?.nome || !this.datiGenerali?.beneficiario?.cognome || !this.datiGenerali?.beneficiario?.codiceFiscale) {
-    errori.push('Dati beneficiario incompleti');
-  }
-  
-  if (!this.datiGenerali?.amministratore?.nome || !this.datiGenerali?.amministratore?.cognome || !this.datiGenerali?.amministratore?.codiceFiscale) {
-    errori.push('Dati amministratore incompleti');
+  if (!this.beneficiarioId) {
+    errori.push('Beneficiario non selezionato');
   }
   
   if (!this.firma?.luogo || !this.firma?.data) {
     errori.push('Dati firma incompleti');
+  }
+  
+  // Verifica che la data di fine sia successiva alla data di inizio
+  if (this.datiGenerali?.dataInizio && this.datiGenerali?.dataFine) {
+    if (this.datiGenerali.dataFine <= this.datiGenerali.dataInizio) {
+      errori.push('La data di fine deve essere successiva alla data di inizio');
+    }
   }
   
   return {

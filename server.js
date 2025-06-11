@@ -9,6 +9,7 @@ const passport = require('passport');
 const authRoutes = require('./routes/auth');
 const rendicontoRoutes = require('./routes/rendiconto');
 const categorieRoutes = require('./routes/categorie');
+const beneficiariRoutes = require('./routes/beneficiari');
 
 // Configurazione environment
 dotenv.config();
@@ -42,13 +43,20 @@ app.use(passport.session());
 
 // Connessione MongoDB
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/rendiconto')
-.then(() => console.log('✅ Connesso a MongoDB'))
+.then(async () => {
+  console.log('✅ Connesso a MongoDB');
+  
+  // Inizializza categorie default automaticamente
+  const Categoria = require('./models/Categoria');
+  await Categoria.initializeDefaults();
+})
 .catch(err => console.error('❌ Errore connessione MongoDB:', err));
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/rendiconti', rendicontoRoutes);
 app.use('/api/categorie', categorieRoutes);
+app.use('/api/beneficiari', beneficiariRoutes);
 
 // Route di test
 app.get('/api/health', (req, res) => {

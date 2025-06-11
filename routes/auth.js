@@ -266,4 +266,87 @@ router.put('/profile', [
   }
 });
 
+// @route   PUT /api/auth/profile-completo
+// @desc    Aggiorna profilo completo amministratore
+// @access  Private
+router.put('/profile-completo', [
+  body('nome')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Il nome deve essere tra 2 e 50 caratteri'),
+  body('cognome')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Il cognome deve essere tra 2 e 50 caratteri'),
+  body('telefono')
+    .optional()
+    .matches(/^[\+]?[0-9\s\-\(\)]{8,15}$/)
+    .withMessage('Inserisci un numero di telefono valido'),
+  body('dataNascita')
+    .optional()
+    .isISO8601()
+    .withMessage('Data di nascita non valida'),
+  body('luogoNascita')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Il luogo di nascita non può superare i 100 caratteri'),
+  body('professione')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('La professione non può superare i 100 caratteri'),
+  body('numeroAlbo')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Il numero albo non può superare i 50 caratteri'),
+  body('pec')
+    .optional()
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Inserisci una PEC valida')
+], handleValidationErrors, async (req, res) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'rendiconto-jwt-secret');
+    
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({
+        error: 'Utente non trovato'
+      });
+    }
+
+    // Aggiorna tutti i campi del profilo completo
+    const allowedUpdates = [
+      'nome', 'cognome', 'telefono', 'indirizzo',
+      'dataNascita', 'luogoNascita', 'professione', 
+      'numeroAlbo', 'pec'
+    ];
+    
+    allowedUpdates.forEach(field => {
+      if (req.body[field] !== undefined) {
+        user[field] = req.body[field];
+      }
+    });
+
+    await user.save();
+
+    res.json({
+      message: 'Profilo completo aggiornato con successo',
+      user: user.toJSON()
+    });
+
+  } catch (error) {
+    console.error('Errore aggiornamento profilo completo:', error);
+    res.status(500).json({
+      error: 'Errore durante l\'aggiornamento del profilo completo',
+      message: error.message
+    });
+  }
+});
+
 module.exports = router; 

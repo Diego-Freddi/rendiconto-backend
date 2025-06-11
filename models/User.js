@@ -38,6 +38,35 @@ const userSchema = new mongoose.Schema({
     trim: true,
     match: [/^[\+]?[0-9\s\-\(\)]{8,15}$/, 'Inserisci un numero di telefono valido']
   },
+  
+  // Dati anagrafici aggiuntivi per completezza profilo
+  dataNascita: {
+    type: Date
+  },
+  luogoNascita: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Il luogo di nascita non può superare i 100 caratteri']
+  },
+  
+  // Dati professionali
+  professione: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'La professione non può superare i 100 caratteri']
+  },
+  numeroAlbo: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'Il numero albo non può superare i 50 caratteri']
+  },
+  pec: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Inserisci una PEC valida']
+  },
+  
   indirizzo: {
     via: String,
     citta: String,
