@@ -87,6 +87,9 @@ public
 tmp/
 temp/
 
+# Upload files (contengono dati sensibili)
+uploads/
+
 # Logs
 logs
 *.log

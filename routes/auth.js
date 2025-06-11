@@ -349,4 +349,161 @@ router.put('/profile-completo', [
   }
 });
 
+// @route   POST /api/auth/upload-firma
+// @desc    Carica immagine firma Base64 (con verifica password)
+// @access  Private
+router.post('/upload-firma', [
+  body('password')
+    .notEmpty()
+    .withMessage('La password è obbligatoria per caricare la firma'),
+  body('firmaBase64')
+    .notEmpty()
+    .withMessage('L\'immagine della firma è obbligatoria')
+    .isLength({ max: 5 * 1024 * 1024 }) // Max 5MB Base64
+    .withMessage('Immagine troppo grande (max 5MB)')
+], handleValidationErrors, async (req, res) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'rendiconto-jwt-secret');
+    
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utente non trovato'
+      });
+    }
+
+    // Verifica password
+    const isPasswordValid = await user.comparePassword(req.body.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Password non corretta'
+      });
+    }
+
+    // Valida formato Base64
+    const { firmaBase64 } = req.body;
+    if (!firmaBase64.startsWith('data:image/')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Formato immagine non valido'
+      });
+    }
+
+    // Salva la firma Base64
+    user.firmaImmagine = firmaBase64;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Firma caricata con successo',
+      firmaUrl: firmaBase64
+    });
+
+  } catch (error) {
+    console.error('Errore upload firma:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Errore durante il caricamento della firma',
+      error: error.message
+    });
+  }
+});
+
+// @route   DELETE /api/auth/delete-firma
+// @desc    Elimina immagine firma (con verifica password)
+// @access  Private
+router.delete('/delete-firma', [
+  body('password')
+    .notEmpty()
+    .withMessage('La password è obbligatoria per eliminare la firma')
+], handleValidationErrors, async (req, res) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'rendiconto-jwt-secret');
+    
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utente non trovato'
+      });
+    }
+
+    // Verifica password
+    const isPasswordValid = await user.comparePassword(req.body.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Password non corretta'
+      });
+    }
+
+    if (!user.firmaImmagine) {
+      return res.status(404).json({
+        success: false,
+        message: 'Nessuna firma da eliminare'
+      });
+    }
+
+    // Rimuovi la firma dal database
+    user.firmaImmagine = null;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Firma eliminata con successo'
+    });
+
+  } catch (error) {
+    console.error('Errore eliminazione firma:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Errore durante l\'eliminazione della firma',
+      error: error.message
+    });
+  }
+});
+
+// @route   POST /api/auth/verify-password
+// @desc    Verifica password per applicazione firma
+// @access  Private
+router.post('/verify-password', [
+  body('password')
+    .notEmpty()
+    .withMessage('La password è obbligatoria')
+], handleValidationErrors, async (req, res) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'rendiconto-jwt-secret');
+    
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utente non trovato'
+      });
+    }
+
+    // Verifica password
+    const isPasswordValid = await user.comparePassword(req.body.password);
+    
+    res.json({
+      success: true,
+      valid: isPasswordValid,
+      message: isPasswordValid ? 'Password corretta' : 'Password non corretta'
+    });
+
+  } catch (error) {
+    console.error('Errore verifica password:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Errore durante la verifica della password',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router; 

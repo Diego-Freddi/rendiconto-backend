@@ -129,6 +129,19 @@ const rendicontoSchema = new mongoose.Schema({
       trim: true,
       maxlength: [1000, 'Le note non possono superare i 1000 caratteri']
     },
+    firmaDigitale: {
+      immagine: {
+        type: String, // Path dell'immagine firma
+        trim: true
+      },
+      dataApplicazione: {
+        type: Date
+      },
+      amministratore: {
+        type: String, // Nome completo dell'amministratore
+        trim: true
+      }
+    },
     tipoSalvataggio: {
       type: String,
       enum: ['bozza', 'definitivo', 'pdf']

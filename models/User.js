@@ -67,6 +67,12 @@ const userSchema = new mongoose.Schema({
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Inserisci una PEC valida']
   },
   
+  // Firma digitale
+  firmaImmagine: {
+    type: String, // Path/URL dell'immagine della firma
+    trim: true
+  },
+  
   indirizzo: {
     via: String,
     citta: String,
