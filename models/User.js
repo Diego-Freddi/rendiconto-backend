@@ -74,10 +74,9 @@ const userSchema = new mongoose.Schema({
   },
   
   indirizzo: {
-    via: String,
-    citta: String,
-    cap: String,
-    provincia: String
+    type: String,
+    trim: true,
+    maxlength: [500, 'L\'indirizzo non può superare i 500 caratteri']
   },
   ruolo: {
     type: String,
